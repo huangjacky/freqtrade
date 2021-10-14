@@ -178,9 +178,9 @@ class Exchange:
         logger.debug("Exchange object destroyed, closing async loop")
 
         async def close_all():
-            self._api_async.close()
+            await self._api_async.close()
             for k in self._apis_async:
-                k.close()
+                await k.close()
         if self._api_async and inspect.iscoroutinefunction(self._api_async.close):
             asyncio.get_event_loop().run_until_complete(close_all())
 
