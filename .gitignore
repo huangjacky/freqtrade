@@ -2,7 +2,8 @@
 config*.json
 *.sqlite
 logfile.txt
-kucoin
+kucoin/*
+nohup.out
 user_data/*
 !user_data/strategy/sample_strategy.py
 !user_data/notebooks
