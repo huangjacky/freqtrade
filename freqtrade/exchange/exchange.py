@@ -143,9 +143,10 @@ class Exchange:
             exchange_config, ccxt_async, ccxt_kwargs=ccxt_async_config)
         if 'readonly' in config:
             readonly_apis = config['readonly']
+            logger.info(f'ReadOnly Length: {len(readonly_apis)}')
             for item in readonly_apis:
                 self._apis.append(self._init_ccxt(item, ccxt_kwargs=ccxt_config))
-                self._apis_async.append(self._init_ccxt(exchange_config, ccxt_async, ccxt_kwargs=ccxt_async_config))
+                self._apis_async.append(self._init_ccxt(item, ccxt_async, ccxt_kwargs=ccxt_async_config))
         logger.info('Using Exchange "%s"', self.name)
 
         if validate:
@@ -1363,6 +1364,8 @@ class Exchange:
             )
             params = self._ft_has.get('ohlcv_params', {})
             api = random.choice(self._apis_async) if len(self._apis_async) >0 else self._api_async
+            api.apiKey
+            logger.info(f"_async_get_candle_history: {api.apiKey}")
             data = await api.fetch_ohlcv(pair, timeframe=timeframe,
                                                      since=since_ms,
                                                      limit=self.ohlcv_candle_limit(timeframe),
