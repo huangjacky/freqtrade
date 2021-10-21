@@ -6,7 +6,6 @@ import asyncio
 import http
 import inspect
 import logging
-import random
 from copy import deepcopy
 from datetime import datetime, timezone
 from math import ceil
@@ -84,8 +83,6 @@ class Exchange:
         self._api: ccxt.Exchange = None
         self._api_async: ccxt_async.Exchange = None
         self._markets: Dict = {}
-        self._apis: list[ccxt.Exchange] = []
-        self._apis_async: list[ccxt_async.Exchange] = []
 
         self._config.update(config)
 
@@ -134,6 +131,7 @@ class Exchange:
         ccxt_config = deep_merge_dicts(exchange_config.get('ccxt_sync_config', {}), ccxt_config)
 
         self._api = self._init_ccxt(exchange_config, ccxt_kwargs=ccxt_config)
+
         ccxt_async_config = self._ccxt_config.copy()
         ccxt_async_config = deep_merge_dicts(exchange_config.get('ccxt_config', {}),
                                              ccxt_async_config)
@@ -141,12 +139,7 @@ class Exchange:
                                              ccxt_async_config)
         self._api_async = self._init_ccxt(
             exchange_config, ccxt_async, ccxt_kwargs=ccxt_async_config)
-        if 'readonly' in config:
-            readonly_apis = config['readonly']
-            logger.info(f'ReadOnly Length: {len(readonly_apis)}')
-            for item in readonly_apis:
-                self._apis.append(self._init_ccxt(item, ccxt_kwargs=ccxt_config))
-                self._apis_async.append(self._init_ccxt(item, ccxt_async, ccxt_kwargs=ccxt_async_config))
+
         logger.info('Using Exchange "%s"', self.name)
 
         if validate:
@@ -177,13 +170,8 @@ class Exchange:
 
     def close(self):
         logger.debug("Exchange object destroyed, closing async loop")
-
-        async def close_all():
-            await self._api_async.close()
-            for k in self._apis_async:
-                await k.close()
         if self._api_async and inspect.iscoroutinefunction(self._api_async.close):
-            asyncio.get_event_loop().run_until_complete(close_all())
+            asyncio.get_event_loop().run_until_complete(self._api_async.close())
 
     def _init_ccxt(self, exchange_config: Dict[str, Any], ccxt_module: CcxtModuleType = ccxt,
                    ccxt_kwargs: Dict = {}) -> ccxt.Exchange:
@@ -338,12 +326,8 @@ class Exchange:
     def _load_async_markets(self, reload: bool = False) -> None:
         try:
             if self._api_async:
-                if len(self._apis_async) > 0:
-                    api = random.choice(self._apis_async)
-                    asyncio.get_event_loop().run_until_complete(api.load_markets(reload=reload))
-                else:
-                    asyncio.get_event_loop().run_until_complete(
-                        self._api_async.load_markets(reload=reload))
+                asyncio.get_event_loop().run_until_complete(
+                    self._api_async.load_markets(reload=reload))
 
         except (asyncio.TimeoutError, ccxt.BaseError) as e:
             logger.warning('Could not load async markets. Reason: %s', e)
@@ -352,11 +336,7 @@ class Exchange:
     def _load_markets(self) -> None:
         """ Initialize markets both sync and async """
         try:
-            if len(self._apis) > 0:
-                api = random.choice(self._apis)
-                self._markets = api.load_markets()
-            else:
-                self._markets = self._api.load_markets()
+            self._markets = self._api.load_markets()
             self._load_async_markets()
             self._last_markets_refresh = arrow.utcnow().int_timestamp
         except ccxt.BaseError:
@@ -371,10 +351,7 @@ class Exchange:
             return None
         logger.debug("Performing scheduled market reload..")
         try:
-            api = self._api
-            if len(self._apis) > 0:
-                api = random.choice(self._apis)
-            self._markets = api.load_markets(reload=True)
+            self._markets = self._api.load_markets(reload=True)
             # Also reload async markets to avoid issues with newly listed pairs
             self._load_async_markets(reload=True)
             self._last_markets_refresh = arrow.utcnow().int_timestamp
@@ -931,6 +908,7 @@ class Exchange:
 
     @retrier
     def get_balances(self) -> dict:
+
         try:
             balances = self._api.fetch_balance()
             # Remove additional info from ccxt results
@@ -959,10 +937,7 @@ class Exchange:
             if tickers:
                 return tickers
         try:
-            api = self._api
-            if len(self._apis) > 0 :
-                api = random.choice(self._apis)
-            tickers = api.fetch_tickers()
+            tickers = self._api.fetch_tickers()
             self._fetch_tickers_cache['fetch_tickers'] = tickers
             return tickers
         except ccxt.NotSupported as e:
@@ -985,8 +960,7 @@ class Exchange:
             if (pair not in self.markets or
                     self.markets[pair].get('active', False) is False):
                 raise ExchangeError(f"Pair {pair} not available")
-
-            data = random.choice(self._apis).fetch_ticker(pair) if len(self._apis) > 0 else self._api.fetch_ticker(pair)
+            data = self._api.fetch_ticker(pair)
             return data
         except ccxt.DDoSProtection as e:
             raise DDosProtection(e) from e
@@ -1024,7 +998,7 @@ class Exchange:
                                              self._ft_has['l2_limit_range_required'])
         try:
 
-            return random.choice(self._apis).fetch_l2_order_book(pair, limit1) if len(self._apis)>0 else self._api.fetch_l2_order_book(pair, limit1)
+            return self._api.fetch_l2_order_book(pair, limit1)
         except ccxt.NotSupported as e:
             raise OperationalException(
                 f'Exchange {self._api.name} does not support fetching order book.'
@@ -1149,10 +1123,9 @@ class Exchange:
                 return self._config['fee']
             # validate that markets are loaded before trying to get fee
             if self._api.markets is None or len(self._api.markets) == 0:
-                api = random.choice(self._apis) if len(self._apis)>0 else self._api
-                api.load_markets()
+                self._api.load_markets()
 
-            return api.calculate_fee(symbol=symbol, type=type, side=side, amount=amount,
+            return self._api.calculate_fee(symbol=symbol, type=type, side=side, amount=amount,
                                            price=price, takerOrMaker=taker_or_maker)['rate']
         except ccxt.DDoSProtection as e:
             raise DDosProtection(e) from e
@@ -1363,10 +1336,7 @@ class Exchange:
                 pair, timeframe, since_ms, s
             )
             params = self._ft_has.get('ohlcv_params', {})
-            api = random.choice(self._apis_async) if len(self._apis_async) >0 else self._api_async
-            api.apiKey
-            logger.info(f"_async_get_candle_history: {api.apiKey}")
-            data = await api.fetch_ohlcv(pair, timeframe=timeframe,
+            data = await self._api_async.fetch_ohlcv(pair, timeframe=timeframe,
                                                      since=since_ms,
                                                      limit=self.ohlcv_candle_limit(timeframe),
                                                      params=params)
@@ -1422,8 +1392,7 @@ class Exchange:
                     pair,  since,
                     '(' + arrow.get(since // 1000).isoformat() + ') ' if since is not None else ''
                 )
-                api = random.choice(self._apis_async) if len(self._apis_async) > 0 else self._api_async
-                trades = await api.fetch_trades(pair, since=since, limit=1000)
+                trades = await self._api_async.fetch_trades(pair, since=since, limit=1000)
             return trades_dict_to_list(trades)
         except ccxt.NotSupported as e:
             raise OperationalException(
