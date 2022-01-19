@@ -592,6 +592,7 @@ class RPC:
         value = self._fiat_converter.convert_amount(
             total, stake_currency, fiat_display_currency) if self._fiat_converter else 0
 
+        trade_count = len(Trade.get_trades_proxy())
         starting_capital_ratio = 0.0
         starting_capital_ratio = (total / starting_capital) - 1 if starting_capital else 0.0
         starting_cap_fiat_ratio = (value / starting_cap_fiat) - 1 if starting_cap_fiat else 0.0
@@ -608,6 +609,7 @@ class RPC:
             'starting_capital_fiat': starting_cap_fiat,
             'starting_capital_fiat_ratio': starting_cap_fiat_ratio,
             'starting_capital_fiat_pct': round(starting_cap_fiat_ratio * 100, 2),
+            'trade_count': trade_count,
             'note': 'Simulated balances' if self._freqtrade.config['dry_run'] else ''
         }
 
@@ -721,7 +723,8 @@ class RPC:
         # check if pair already has an open pair
         trade = Trade.get_trades([Trade.is_open.is_(True), Trade.pair == pair]).first()
         if trade:
-            raise RPCException(f'position for {pair} already open - id: {trade.id}')
+            if not self._freqtrade.strategy.position_adjustment_enable:
+                raise RPCException(f'position for {pair} already open - id: {trade.id}')
 
         # gen stake amount
         stakeamount = self._freqtrade.wallets.get_trade_stake_amount(pair)
@@ -730,7 +733,8 @@ class RPC:
         if not order_type:
             order_type = self._freqtrade.strategy.order_types.get(
                 'forcebuy', self._freqtrade.strategy.order_types['buy'])
-        if self._freqtrade.execute_entry(pair, stakeamount, price, ordertype=order_type):
+        if self._freqtrade.execute_entry(pair, stakeamount, price,
+                                         ordertype=order_type, trade=trade):
             Trade.commit()
             trade = Trade.get_trades([Trade.is_open.is_(True), Trade.pair == pair]).first()
             return trade
