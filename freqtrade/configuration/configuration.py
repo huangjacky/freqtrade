@@ -276,8 +276,8 @@ class Configuration:
         self._args_to_config(config, argname='backtest_breakdown',
                              logstring='Parameter --breakdown detected ...')
 
-        self._args_to_config(config, argname='no_backtest_cache',
-                             logstring='Parameter --no-cache detected ...')
+        self._args_to_config(config, argname='backtest_cache',
+                             logstring='Parameter --cache={} detected ...')
 
         self._args_to_config(config, argname='disableparamexport',
                              logstring='Parameter --disableparamexport detected: {} ...')
@@ -431,7 +431,6 @@ class Configuration:
                              logstring='Using "{}" to store trades data.')
 
     def _process_data_options(self, config: Dict[str, Any]) -> None:
-
         self._args_to_config(config, argname='new_pairs_days',
                              logstring='Detected --new-pairs-days: {}')
 

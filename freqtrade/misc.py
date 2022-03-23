@@ -29,18 +29,23 @@ def decimals_per_coin(coin: str):
     return DECIMALS_PER_COIN.get(coin, DECIMAL_PER_COIN_FALLBACK)
 
 
-def round_coin_value(value: float, coin: str, show_coin_name=True) -> str:
+def round_coin_value(
+        value: float, coin: str, show_coin_name=True, keep_trailing_zeros=False) -> str:
     """
     Get price value for this coin
     :param value: Value to be printed
     :param coin: Which coin are we printing the price / value for
     :param show_coin_name: Return string in format: "222.22 USDT" or "222.22"
+    :param keep_trailing_zeros: Keep trailing zeros "222.200" vs. "222.2"
     :return: Formatted / rounded value (with or without coin name)
     """
+    val = f"{value:.{decimals_per_coin(coin)}f}"
+    if not keep_trailing_zeros:
+        val = val.rstrip('0').rstrip('.')
     if show_coin_name:
-        return f"{value:.{decimals_per_coin(coin)}f} {coin}"
-    else:
-        return f"{value:.{decimals_per_coin(coin)}f}"
+        val = f"{val} {coin}"
+
+    return val
 
 
 def shorten_date(_date: str) -> str:
@@ -248,8 +253,10 @@ def get_strategy_run_id(strategy) -> str:
         if k in config:
             del config[k]
 
+    # Explicitly allow NaN values (e.g. max_open_trades).
+    # as it does not matter for getting the hash.
     digest.update(rapidjson.dumps(config, default=str,
-                                  number_mode=rapidjson.NM_NATIVE).encode('utf-8'))
+                                  number_mode=rapidjson.NM_NAN).encode('utf-8'))
     with open(strategy.__file__, 'rb') as fp:
         digest.update(fp.read())
     return digest.hexdigest().lower()
